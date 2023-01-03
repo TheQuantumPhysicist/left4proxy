@@ -57,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut incoming = listener.incoming();
 
     while let Some(stream) = incoming.next().await {
+        println!("Received connection");
         spawn(async {
             handle_connection(stream).await;
         });
