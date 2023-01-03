@@ -14,6 +14,10 @@ async fn from_a_to_b(a: &mut TcpStream, b: &mut TcpStream) {
         }
     }
 
+    if buf.is_empty() {
+        return;
+    }
+
     println!("Read {} bytes from a", buf.len());
 
     match b.write_all(&buf).await {
