@@ -3,28 +3,33 @@ use async_std::prelude::*;
 
 const POSSIBLE_DESTINATIONS: [&str; 3] = ["127.0.0.1:55880", "10.10.0.11:55880", "127.0.0.1:8880"];
 
+async fn from_a_to_b(a: &mut TcpStream, b: &mut TcpStream) {
+    let mut buf = Vec::new();
+    match a.read_to_end(&mut buf).await {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Buffer incoming read error: {e}");
+            return;
+        }
+    }
+
+    println!("Read {} bytes from a", buf.len());
+
+    match b.write_all(&buf).await {
+        Ok(_) => (),
+        Err(e) => {
+            eprintln!("Buffer outgoing write error: {e}");
+            return;
+        }
+    }
+
+    println!("Wrote {} bytes to b", buf.len());
+}
+
 async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
     loop {
-        let mut buf = Vec::new();
-        match incoming.read_to_end(&mut buf).await {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!("Buffer incoming read error: {e}");
-                return;
-            }
-        }
-
-        println!("Read {} bytes from source", buf.len());
-
-        match outgoing.write_all(&buf).await {
-            Ok(_) => (),
-            Err(e) => {
-                eprintln!("Buffer outgoing write error: {e}");
-                return;
-            }
-        }
-
-        println!("Wrote {} bytes to destination", buf.len());
+        from_a_to_b(&mut incoming,&mut  outgoing).await;
+        from_a_to_b(&mut outgoing,&mut  incoming).await;
     }
 }
 
