@@ -1,7 +1,6 @@
 use async_std::net::{TcpListener, TcpStream};
 use async_std::prelude::*;
 use async_std::task::spawn;
-use std::io::Error;
 
 const POSSIBLE_DESTINATIONS: [&str; 3] = ["127.0.0.1:55880", "10.10.0.11:55880", "127.0.0.1:8880"];
 
@@ -26,15 +25,7 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
     }
 }
 
-async fn handle_connection(stream: Result<TcpStream, Error>) {
-    let incoming_stream = match stream {
-        Ok(stream) => stream,
-        Err(e) => {
-            eprintln!("Stream unwrap error: {e}");
-            return;
-        }
-    };
-
+async fn handle_connection(incoming_stream: TcpStream) {
     for op in POSSIBLE_DESTINATIONS {
         let outgoing_stream = match TcpStream::connect(op).await {
             Ok(stream) => stream,
@@ -54,14 +45,17 @@ async fn handle_connection(stream: Result<TcpStream, Error>) {
 #[async_std::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:58888").await?;
-    let mut incoming = listener.incoming();
-
-    while let Some(stream) = incoming.next().await {
-        println!("Received connection");
+    loop {
+        let (stream, address) = match listener.accept().await {
+            Ok(stream) => stream,
+            Err(e) => {
+                eprintln!("Accept failed: {e}");
+                continue;
+            }
+        };
+        println!("Received connection from {address}");
         spawn(async {
             handle_connection(stream).await;
         });
     }
-
-    Ok(())
 }
