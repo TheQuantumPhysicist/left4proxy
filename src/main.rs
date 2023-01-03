@@ -1,5 +1,6 @@
 use async_std::io;
 use async_std::net::{TcpListener, TcpStream};
+use async_std::task;
 
 const POSSIBLE_DESTINATIONS: [&str; 3] = ["127.0.0.1:55880", "10.10.0.11:55880", "127.0.0.1:8880"];
 
@@ -48,6 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         println!("Received connection from {address}");
 
-        handle_connection(stream).await;
+        task::spawn(async {
+            handle_connection(stream).await;
+        });
     }
 }
