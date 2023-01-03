@@ -4,8 +4,8 @@ use async_std::prelude::*;
 const POSSIBLE_DESTINATIONS: [&str; 3] = ["127.0.0.1:55880", "10.10.0.11:55880", "127.0.0.1:8880"];
 
 async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
-    let mut buf = Vec::new();
     loop {
+        let mut buf = Vec::new();
         match incoming.read_to_end(&mut buf).await {
             Ok(_) => (),
             Err(e) => {
@@ -14,6 +14,8 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
             }
         }
 
+        println!("Read {} bytes from source", buf.len());
+
         match outgoing.write_all(&buf).await {
             Ok(_) => (),
             Err(e) => {
@@ -21,6 +23,8 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                 return;
             }
         }
+
+        println!("Wrote {} bytes to destination", buf.len());
     }
 }
 
