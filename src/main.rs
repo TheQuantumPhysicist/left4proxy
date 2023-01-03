@@ -39,7 +39,7 @@ async fn handle_connection(stream: Result<TcpStream, Error>) {
         let outgoing_stream = match TcpStream::connect(op).await {
             Ok(stream) => stream,
             Err(e) => {
-                eprintln!("Destination failed: {e}");
+                eprintln!("Destination failed {op}: {e}");
                 continue;
             }
         };
