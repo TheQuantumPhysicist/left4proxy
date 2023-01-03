@@ -3,7 +3,7 @@ use async_std::prelude::*;
 use async_std::task::spawn;
 use std::io::Error;
 
-const POSSIBLE_DESTINATIONS: [&str; 3] = ["127.0.0.1:55880", "10.10.0.11:55880", "127.0.0.1:80"];
+const POSSIBLE_DESTINATIONS: [&str; 3] = ["127.0.0.1:55880", "10.10.0.11:55880", "127.0.0.1:8880"];
 
 async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
     let mut buf = Vec::new();
