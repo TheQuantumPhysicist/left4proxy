@@ -10,8 +10,8 @@ use tokio::task;
 mod test;
 
 async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
-    let mut buf1 = [0; 1024];
-    let mut buf2 = [0; 1024];
+    let mut buf1 = [0; 16384];
+    let mut buf2 = [0; 16384];
 
     loop {
         select! {
@@ -156,8 +156,17 @@ async fn one_shot_proxy(listener: &TcpListener, destinations_strs: Arc<Vec<Strin
 async fn start<S: AsRef<str>>(
     source_address_str: S,
     destinations_strs: Arc<Vec<String>>,
+    bind_confirming_channel: Option<tokio::sync::oneshot::Sender<()>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(source_address_str.as_ref()).await?;
+
+    if let Some(ch) = bind_confirming_channel {
+        ch.send(())
+            .expect("Oneshot: failed in sending binding result failed");
+    }
+
+    println!("Program started...");
+
     loop {
         let destinations_strs = Arc::clone(&destinations_strs);
 
@@ -171,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let destinations_strs = Arc::new(destinations_strs);
 
-    start(source_address_str, destinations_strs).await?;
+    start(source_address_str, destinations_strs, None).await?;
 
     Ok(())
 }
