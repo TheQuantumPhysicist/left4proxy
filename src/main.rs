@@ -15,7 +15,7 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
 
     loop {
         select! {
-            n = incoming.read_to_end(&mut buf1) => {
+            n = incoming.read(&mut buf1) => {
                 // incoming has data available to be read
                 let n = match n {
                     Ok(n) => n,
@@ -39,7 +39,7 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                 }
                 buf1.clear();
             },
-            n = outgoing.read_to_end(&mut buf2) => {
+            n = outgoing.read(&mut buf2) => {
                 // outgoing has data available to be read
                 let n = match n {
                     Ok(n) => n,
