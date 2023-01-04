@@ -1,9 +1,9 @@
-use async_std::io;
-use async_std::net::{TcpListener, TcpStream};
-use async_std::task;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::io;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::task;
 
 #[cfg(test)]
 mod test;
@@ -121,7 +121,7 @@ async fn start<S: AsRef<str>>(
     }
 }
 
-#[async_std::main]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (source_address_str, destinations_strs) = parse_args()?;
 

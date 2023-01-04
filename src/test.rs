@@ -1,7 +1,6 @@
-use async_std::{
-    io::{ReadExt, WriteExt},
-    net::ToSocketAddrs,
-};
+use std::net::ToSocketAddrs;
+
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 
@@ -58,7 +57,6 @@ async fn prepare_destination_end(response_data: Vec<u8>) -> SocketAddr {
         .local_addr()
         .unwrap()
         .to_socket_addrs()
-        .await
         .unwrap()
         .into_iter()
         .collect::<Vec<SocketAddr>>()[0];
@@ -86,14 +84,14 @@ async fn prepare_destination_end(response_data: Vec<u8>) -> SocketAddr {
             read_buf
         };
         println!("Received: {:?}", read_buf);
-        incoming_stream.write_all(&response_data);
-        incoming_stream.write_all(&read_buf);
+        incoming_stream.write_all(&response_data).await.unwrap();
+        incoming_stream.write_all(&read_buf).await.unwrap();
     });
 
     addr
 }
 
-#[async_std::test]
+#[tokio::test]
 async fn connection_proxy() {
     // let source_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     // let source_listener_addr = source_listener
@@ -130,10 +128,10 @@ async fn connection_proxy() {
     let mut source_writer = TcpStream::connect("127.0.0.1:53535").await.unwrap();
 
     let data_to_send = vec![1, 5, 7];
-    source_writer.write(&mut &data_to_send).await.unwrap();
+    source_writer.write_all(&mut &data_to_send).await.unwrap();
     let mut read_buf = Vec::new();
 
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    // std::thread::sleep(std::time::Duration::from_secs(5));
 
     source_writer.read_to_end(&mut read_buf).await.unwrap();
     println!("{:?}", read_buf);
