@@ -10,12 +10,12 @@ use tokio::task;
 mod test;
 
 async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
-    let mut buf1 = Vec::new();
-    let mut buf2 = Vec::new();
+    let mut buf1 = [0; 1024];
+    let mut buf2 = [0; 1024];
 
     loop {
         select! {
-            n = incoming.read_to_end(&mut buf1) => {
+            n = incoming.read(&mut buf1) => {
                 // incoming has data available to be read
                 let n = match n {
                     Ok(n) => n,
@@ -33,16 +33,15 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                 }
 
                 // Write the data from incoming to outgoing
-                match outgoing.write_all(&buf1).await {
+                match outgoing.write_all(&buf1[0..n]).await {
                     Ok(()) => {},
                     Err(e) => {
                         eprintln!("Error writing to outgoing: {}", e);
                         break;
                     }
                 }
-                buf1.clear();
             },
-            n = outgoing.read_to_end(&mut buf2) => {
+            n = outgoing.read(&mut buf2) => {
                 // outgoing has data available to be read
                 let n = match n {
                     Ok(n) => n,
@@ -59,32 +58,14 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                 }
 
                 // Write the data from outgoing to incoming
-                match incoming.write_all(&buf2).await {
+                match incoming.write_all(&buf2[0..n]).await {
                     Ok(()) => {},
                     Err(e) => {
                         eprintln!("Error writing to incoming: {}", e);
                         break;
                     }
                 }
-                buf2.clear();
             },
-        }
-    }
-    if !buf1.is_empty() {
-        match outgoing.write_all(&buf1).await {
-            Ok(()) => {}
-            Err(e) => {
-                eprintln!("Error writing final buffer to outgoing: {}", e);
-            }
-        }
-    }
-
-    if !buf2.is_empty() {
-        match incoming.write_all(&buf2).await {
-            Ok(()) => {}
-            Err(e) => {
-                eprintln!("Error writing final buffer to incoming: {}", e);
-            }
         }
     }
 }
