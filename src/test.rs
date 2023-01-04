@@ -1,6 +1,6 @@
 use std::net::ToSocketAddrs;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 
@@ -51,7 +51,7 @@ fn check_invalid_ipv6_addresses() {
     let _ = parse_address(&"127.0.0.1").unwrap_err();
 }
 
-async fn prepare_destination_end(response_data: Vec<u8>) -> SocketAddr {
+async fn prepare_destination_end(response_prefix: Vec<u8>, expected_data: Vec<u8>) -> SocketAddr {
     let destination_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = destination_listener
         .local_addr()
@@ -66,26 +66,15 @@ async fn prepare_destination_end(response_data: Vec<u8>) -> SocketAddr {
     task::spawn(async move {
         let addr_clone = addr_clone;
         let destination_listener = destination_listener;
-        let response_data = response_data;
+        let response_prefix = response_prefix;
 
         let (mut incoming_stream, _incoming_addr) = destination_listener.accept().await.unwrap();
         println!("Accepted connection in destination {addr_clone}");
 
-        let read_buf = {
-            let mut read_buf = Vec::new();
-            loop {
-                incoming_stream.read_to_end(&mut read_buf).await.unwrap();
-                println!("Received bytes: {}", read_buf.len());
+        incoming_stream.write_all(&response_prefix).await.unwrap();
 
-                if !read_buf.is_empty() {
-                    break;
-                }
-            }
-            read_buf
-        };
-        println!("Received: {:?}", read_buf);
-        incoming_stream.write_all(&response_data).await.unwrap();
-        incoming_stream.write_all(&read_buf).await.unwrap();
+        let (mut read, mut write) = tokio::io::split(incoming_stream);
+        io::copy(&mut read, &mut write).await.unwrap();
     });
 
     addr
@@ -105,9 +94,27 @@ async fn connection_proxy() {
 
     let destinations_count = 4;
 
+    let response_prefixes = [
+        b"abcd".to_vec(),
+        b"ggg".to_vec(),
+        b"shas".to_vec(),
+        b"bassX".to_vec(),
+    ];
+
+    let expected_data_for_dests = [
+        b"sdsdsddwwd".to_vec(),
+        b"sgfsgsgs".to_vec(),
+        b"fwfwfwfw".to_vec(),
+        b"sdfsfswegegegeg".to_vec(),
+    ];
+
     let mut destinations_addrs = Vec::new();
-    for _index in 0..destinations_count {
-        let addr = prepare_destination_end(b"abcd".to_vec()).await;
+    for dest_idx in 0..destinations_count {
+        let addr = prepare_destination_end(
+            response_prefixes[dest_idx].to_vec(),
+            expected_data_for_dests[dest_idx].to_vec(),
+        )
+        .await;
 
         destinations_addrs.push(addr);
     }
@@ -120,19 +127,33 @@ async fn connection_proxy() {
     println!("Test destinations: {destinations_addrs_strs:?}");
     let destinations_strs = Arc::new(destinations_addrs_strs.clone());
 
+    let (start_bind_tx, start_bind_rx) = tokio::sync::oneshot::channel();
+
     task::spawn(async {
         // one_shot_proxy(&source_listener, Arc::new(destinations_addrs_strs)).await;
-        start("127.0.0.1:53535", destinations_strs).await.unwrap();
+        start("127.0.0.1:53535", destinations_strs, Some(start_bind_tx))
+            .await
+            .unwrap();
     });
+
+    start_bind_rx.await.unwrap();
 
     let mut source_writer = TcpStream::connect("127.0.0.1:53535").await.unwrap();
 
     let data_to_send = vec![1, 5, 7];
-    source_writer.write_all(&mut &data_to_send).await.unwrap();
-    let mut read_buf = Vec::new();
+    source_writer.write_all(&data_to_send).await.unwrap();
 
-    // std::thread::sleep(std::time::Duration::from_secs(5));
+    let idx = 0; // destination index TODO put in loop
 
-    source_writer.read_to_end(&mut read_buf).await.unwrap();
-    println!("{:?}", read_buf);
+    let expected_data = response_prefixes[idx]
+        .clone()
+        .into_iter()
+        .chain(data_to_send.clone().into_iter())
+        .collect::<Vec<u8>>();
+
+    let mut read_result: Vec<u8> = Vec::new();
+    read_result.resize(expected_data.len(), 0);
+    source_writer.read_exact(&mut read_result).await.unwrap();
+
+    assert_eq!(read_result, expected_data);
 }
