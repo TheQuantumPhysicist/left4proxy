@@ -1,29 +1,70 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::io;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::select;
 use tokio::task;
 
 #[cfg(test)]
 mod test;
 
 async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
-    println!("1"); // TODO: remove
-    io::copy(&mut incoming, &mut outgoing)
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("Copy from incoming to outgoing failed {e}");
-            0
-        });
-    println!("2"); // TODO: remove
-    io::copy(&mut outgoing, &mut incoming)
-        .await
-        .unwrap_or_else(|e| {
-            eprintln!("Copy from outgoing to incoming failed {e}");
-            0
-        });
-    println!("3"); // TODO: remove
+    let mut buf1 = Vec::new();
+    let mut buf2 = Vec::new();
+
+    loop {
+        select! {
+            n = incoming.read_to_end(&mut buf1) => {
+                // incoming has data available to be read
+                let n = match n {
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!("Error reading from incoming: {}", e);
+                        break;
+                    }
+                };
+                if n == 0 {
+                    // incoming is closed
+                    break;
+                }
+
+                // Write the data from incoming to outgoing
+                match outgoing.write_all(&buf1).await {
+                    Ok(()) => {},
+                    Err(e) => {
+                        eprintln!("Error writing to outgoing: {}", e);
+                        break;
+                    }
+                }
+                buf1.clear();
+            },
+            n = outgoing.read_to_end(&mut buf2) => {
+                // outgoing has data available to be read
+                let n = match n {
+                    Ok(n) => n,
+                    Err(e) => {
+                        eprintln!("Error reading from outgoing: {}", e);
+                        break;
+                    }
+                };
+                if n == 0 {
+                    // outgoing is closed
+                    break;
+                }
+
+                // Write the data from outgoing to incoming
+                match incoming.write_all(&buf2).await {
+                    Ok(()) => {},
+                    Err(e) => {
+                        eprintln!("Error writing to incoming: {}", e);
+                        break;
+                    }
+                }
+                buf2.clear();
+            },
+        }
+    }
 }
 
 async fn handle_connection(incoming_stream: TcpStream, destinations: Arc<Vec<String>>) {
