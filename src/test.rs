@@ -1,6 +1,6 @@
 use std::net::ToSocketAddrs;
 
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 
@@ -51,7 +51,11 @@ fn check_invalid_ipv6_addresses() {
     let _ = parse_address(&"127.0.0.1").unwrap_err();
 }
 
-async fn prepare_destination_end(response_prefix: Vec<u8>, expected_data: Vec<u8>) -> SocketAddr {
+async fn prepare_destination_end(
+    response_prefix: Vec<u8>,
+    expected_data: Vec<u8>,
+    mut shutdown_signal: tokio::sync::oneshot::Receiver<()>,
+) -> SocketAddr {
     let destination_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = destination_listener
         .local_addr()
@@ -73,8 +77,42 @@ async fn prepare_destination_end(response_prefix: Vec<u8>, expected_data: Vec<u8
 
         incoming_stream.write_all(&response_prefix).await.unwrap();
 
-        let (mut read, mut write) = tokio::io::split(incoming_stream);
-        io::copy(&mut read, &mut write).await.unwrap();
+        let mut readwrite_buffer = [0; 16384];
+
+        loop {
+            select! {
+                n = incoming_stream.read(&mut readwrite_buffer) => {
+                    // incoming has data available to be read
+                    let n = match n {
+                        Ok(n) => n,
+                        Err(e) => {
+                            eprintln!("Error reading from incoming: {}", e);
+                            break;
+                        }
+                    };
+
+                    if n == 0 {
+                        println!("Incoming has zero bytes. Closing connection"); // TODO: remove
+                        break;
+                    } else {
+                        println!("Incoming has {n} bytes"); // TODO: remove
+                    }
+
+                    // Write the data from incoming to outgoing
+                    match incoming_stream.write_all(&readwrite_buffer[0..n]).await {
+                        Ok(()) => {},
+                        Err(e) => {
+                            eprintln!("Error writing to outgoing: {}", e);
+                            break;
+                        }
+                    }
+                },
+                _ = &mut shutdown_signal => {
+                    break;
+                }
+
+            }
+        }
     });
 
     addr
@@ -108,13 +146,46 @@ async fn connection_proxy() {
         b"sdfsfswegegegeg".to_vec(),
     ];
 
-    let mut destinations_addrs = Vec::new();
-    for dest_idx in 0..destinations_count {
-        let addr = prepare_destination_end(
-            response_prefixes[dest_idx].to_vec(),
-            expected_data_for_dests[dest_idx].to_vec(),
+    let (_destinations_shutdown_signal_senders, destinations_shutdown_signal_receivers): (
+        Vec<_>,
+        Vec<_>,
+    ) = (0..destinations_count)
+        .into_iter()
+        .map(|_idx| tokio::sync::oneshot::channel())
+        .unzip();
+
+    let prefixes_expecteddata_shutdownsignals: Vec<(
+        Vec<u8>,
+        Vec<u8>,
+        tokio::sync::oneshot::Receiver<()>,
+    )> = response_prefixes
+        .clone()
+        .into_iter()
+        .zip(
+            expected_data_for_dests
+                .clone()
+                .into_iter()
+                .zip(destinations_shutdown_signal_receivers.into_iter()),
         )
-        .await;
+        .map(|(a, (b, c))| (a, b, c))
+        .collect();
+
+    let destinations_initializers = prefixes_expecteddata_shutdownsignals
+        .into_iter()
+        .map(
+            |(response_prefixes, expected_data_for_dest, destinations_shutdown_signal_receiver)| {
+                prepare_destination_end(
+                    response_prefixes,
+                    expected_data_for_dest,
+                    destinations_shutdown_signal_receiver,
+                )
+            },
+        )
+        .collect::<Vec<_>>();
+
+    let mut destinations_addrs = Vec::new();
+    for dest in destinations_initializers.into_iter() {
+        let addr = dest.await;
 
         destinations_addrs.push(addr);
     }
@@ -140,10 +211,11 @@ async fn connection_proxy() {
 
     let mut source_writer = TcpStream::connect("127.0.0.1:53535").await.unwrap();
 
-    let data_to_send = vec![1, 5, 7];
-    source_writer.write_all(&data_to_send).await.unwrap();
-
     let idx = 0; // destination index TODO put in loop
+
+    let data_to_send = expected_data_for_dests[idx].clone();
+
+    source_writer.write_all(&data_to_send).await.unwrap();
 
     let expected_data = response_prefixes[idx]
         .clone()
