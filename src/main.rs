@@ -70,6 +70,23 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
             },
         }
     }
+    if !buf1.is_empty() {
+        match outgoing.write_all(&buf1).await {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error writing final buffer to outgoing: {}", e);
+            }
+        }
+    }
+
+    if !buf2.is_empty() {
+        match incoming.write_all(&buf2).await {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error writing final buffer to incoming: {}", e);
+            }
+        }
+    }
 }
 
 async fn handle_connection(incoming_stream: TcpStream, destinations: Arc<Vec<String>>) {
