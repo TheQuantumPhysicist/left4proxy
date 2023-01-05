@@ -155,23 +155,20 @@ fn random_bytes(max_size: usize) -> Vec<u8> {
 
 #[tokio::test]
 async fn connection_proxy() {
-    let destinations_count = 4;
+    let destinations_count = rand::random::<usize>() % 100;
+    println!("Test destinations count: {}", destinations_count);
 
     let max_size = 1 << 20;
 
-    let response_prefixes = [
-        random_bytes(max_size),
-        random_bytes(max_size),
-        random_bytes(max_size),
-        random_bytes(max_size),
-    ];
+    let response_prefixes = (0..destinations_count)
+        .into_iter()
+        .map(|_| random_bytes(max_size))
+        .collect::<Vec<_>>();
 
-    let expected_data_for_dests = [
-        random_bytes(max_size),
-        random_bytes(max_size),
-        random_bytes(max_size),
-        random_bytes(max_size),
-    ];
+    let expected_data_for_dests = (0..destinations_count)
+        .into_iter()
+        .map(|_| random_bytes(max_size))
+        .collect::<Vec<_>>();
 
     //////////////////////////////////////////////////
     // Create signals to communicate with destinations
@@ -217,43 +214,51 @@ async fn connection_proxy() {
             .map(|(a, (b, c))| (a, b, c))
             .collect();
 
-    let destinations_initializers = prefixes_expecteddata_signals
-        .into_iter()
-        .map(
-            |(response_prefixes, expected_data_for_dest, destinations_signals)| {
-                prepare_destination_end(
-                    response_prefixes,
-                    expected_data_for_dest,
-                    destinations_signals,
-                )
-            },
-        )
-        .collect::<Vec<_>>();
+    // create the destinations and retrieve their addresses
+    let destinations_addrs_strs = {
+        let destinations_initializers = prefixes_expecteddata_signals
+            .into_iter()
+            .map(
+                |(response_prefixes, expected_data_for_dest, destinations_signals)| {
+                    prepare_destination_end(
+                        response_prefixes,
+                        expected_data_for_dest,
+                        destinations_signals,
+                    )
+                },
+            )
+            .collect::<Vec<_>>();
 
-    let mut destinations_addrs = Vec::new();
-    for dest in destinations_initializers.into_iter() {
-        let addr = dest.await;
+        let mut destinations_addrs = Vec::new();
+        for dest in destinations_initializers.into_iter() {
+            let addr = dest.await;
 
-        destinations_addrs.push(addr);
-    }
+            destinations_addrs.push(addr);
+        }
 
-    let destinations_addrs_strs = destinations_addrs
-        .iter()
-        .map(|d| d.to_string())
-        .collect::<Vec<String>>();
+        let destinations_addrs_strs = destinations_addrs
+            .iter()
+            .map(|d| d.to_string())
+            .collect::<Vec<String>>();
+
+        destinations_addrs_strs
+    };
 
     println!("Test destinations: {destinations_addrs_strs:?}");
     let destinations_strs = Arc::new(destinations_addrs_strs.clone());
 
-    let (start_bind_tx, start_bind_rx) = tokio::sync::oneshot::channel();
+    // Start the proxy application on a specified port
+    {
+        let (start_bind_tx, start_bind_rx) = tokio::sync::oneshot::channel();
 
-    task::spawn(async {
-        start("127.0.0.1:53535", destinations_strs, Some(start_bind_tx))
-            .await
-            .unwrap();
-    });
+        task::spawn(async {
+            start("127.0.0.1:53535", destinations_strs, Some(start_bind_tx))
+                .await
+                .unwrap();
+        });
 
-    start_bind_rx.await.unwrap();
+        start_bind_rx.await.unwrap();
+    }
 
     // In every iteration, we connect to the proxy, then expect the data to arrive to the first available destination,
     // then we close the destination (drop it), reconnect, and we expect to move to the next one
