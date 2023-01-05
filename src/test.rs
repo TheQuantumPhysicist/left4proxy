@@ -52,7 +52,8 @@ fn check_invalid_ipv6_addresses() {
 }
 
 struct DestinationSignals {
-    request_shutdown_signal: tokio::sync::oneshot::Receiver<()>,
+    request_shutdown_signal: tokio::sync::mpsc::UnboundedReceiver<()>,
+    end_reached_signal: tokio::sync::mpsc::UnboundedSender<()>,
 }
 
 async fn prepare_destination_end(
@@ -120,7 +121,7 @@ async fn prepare_destination_end(
                         }
                     }
                 },
-                _ = &mut signals.request_shutdown_signal => {
+                _ = signals.request_shutdown_signal.recv() => {
                     // TODO: better than shutdown and check, we send the data we wanna check in the buffer
                     // after everything is done, ensure that the data we received represents the full expected data
                     assert_eq!(full_incoming_buffer, expected_data);
@@ -130,6 +131,11 @@ async fn prepare_destination_end(
 
             }
         }
+
+        drop(incoming_stream);
+        drop(destination_listener);
+
+        signals.end_reached_signal.send(()).unwrap();
     });
 
     addr
@@ -153,20 +159,36 @@ async fn connection_proxy() {
         b"sdfsfswegegegeg".to_vec(),
     ];
 
+    //////////////////////////////////////////////////
+    // Create signals to communicate with destinations
     let (
         destinations_request_shutdown_signal_senders,
-        destinations_request_shutdown_signal_receivers,
+        mut destinations_request_shutdown_signal_receivers,
     ): (Vec<_>, Vec<_>) = (0..destinations_count)
         .into_iter()
-        .map(|_idx| tokio::sync::oneshot::channel())
+        .map(|_idx| tokio::sync::mpsc::unbounded_channel())
         .unzip();
 
-    let destinations_signals = destinations_request_shutdown_signal_receivers
+    let (mut end_reached_signal_senders, mut end_reached_signal_receivers): (Vec<_>, Vec<_>) = (0
+        ..destinations_count)
         .into_iter()
-        .map(|d| DestinationSignals {
-            request_shutdown_signal: d,
-        })
-        .collect::<Vec<_>>();
+        .map(|_idx| tokio::sync::mpsc::unbounded_channel())
+        .unzip();
+
+    // populate the signals
+    let mut destinations_signals = Vec::new();
+    for _ in 0..destinations_count {
+        let s = DestinationSignals {
+            request_shutdown_signal: destinations_request_shutdown_signal_receivers
+                .pop()
+                .unwrap(),
+            end_reached_signal: end_reached_signal_senders.pop().unwrap(),
+        };
+        destinations_signals.push(s);
+    }
+    destinations_signals.reverse(); // since we filled them in reverse order using pop()
+
+    //////////////////////////////////////////////////
 
     let prefixes_expecteddata_signals: Vec<(Vec<u8>, Vec<u8>, DestinationSignals)> =
         response_prefixes
@@ -220,29 +242,31 @@ async fn connection_proxy() {
 
     start_bind_rx.await.unwrap();
 
-    let mut source_writer = TcpStream::connect("127.0.0.1:53535").await.unwrap();
+    // In every iteration, we connect to the proxy, then expect the data to arrive to the first available destination,
+    // then we close the destination (drop it), reconnect, and we expect to move to the next one
+    for idx in 0..destinations_count {
+        let mut source_writer = TcpStream::connect("127.0.0.1:53535").await.unwrap();
 
-    let idx = 0; // destination index TODO put in loop
+        let data_to_send = expected_data_for_dests[idx].clone();
 
-    let data_to_send = expected_data_for_dests[idx].clone();
+        source_writer.write_all(&data_to_send).await.unwrap();
 
-    source_writer.write_all(&data_to_send).await.unwrap();
+        let expected_data = response_prefixes[idx]
+            .clone()
+            .into_iter()
+            .chain(data_to_send.clone().into_iter())
+            .collect::<Vec<u8>>();
 
-    let expected_data = response_prefixes[idx]
-        .clone()
-        .into_iter()
-        .chain(data_to_send.clone().into_iter())
-        .collect::<Vec<u8>>();
+        let mut read_result: Vec<u8> = Vec::new();
+        read_result.resize(expected_data.len(), 0);
+        source_writer.read_exact(&mut read_result).await.unwrap();
 
-    let mut read_result: Vec<u8> = Vec::new();
-    read_result.resize(expected_data.len(), 0);
-    source_writer.read_exact(&mut read_result).await.unwrap();
+        assert_eq!(read_result, expected_data);
 
-    assert_eq!(read_result, expected_data);
+        destinations_request_shutdown_signal_senders[idx]
+            .send(())
+            .unwrap();
 
-    destinations_request_shutdown_signal_senders
-        .into_iter()
-        .for_each(|s| {
-            s.send(()).unwrap();
-        });
+        end_reached_signal_receivers[idx].recv().await.unwrap();
+    }
 }
