@@ -114,6 +114,7 @@ async fn prepare_destination_end(
                     assert!(full_incoming_buffer.len() <= expected_data.len());
 
                     // Write the data from incoming to outgoing
+                    println!("Writing incoming data of destination {addr_clone} back to stream ({n} bytes)");
                     match incoming_stream.write_all(&incoming_buffer_chunk[0..n]).await {
                         Ok(()) => {},
                         Err(e) => {
@@ -153,7 +154,7 @@ fn random_bytes(max_size: usize) -> Vec<u8> {
         .collect()
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn connection_proxy() {
     let destinations_count = rand::random::<usize>() % 100;
     println!("Test destinations count: {}", destinations_count);
@@ -286,5 +287,7 @@ async fn connection_proxy() {
             .unwrap();
 
         end_reached_signal_receivers[idx].recv().await.unwrap();
+
+        drop(source_writer);
     }
 }
