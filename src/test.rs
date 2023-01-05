@@ -132,6 +132,7 @@ async fn prepare_destination_end(
             }
         }
 
+        // actively destroy the destination
         drop(incoming_stream);
         drop(destination_listener);
 
