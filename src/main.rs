@@ -20,23 +20,23 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                 let n = match n {
                     Ok(n) => n,
                     Err(e) => {
-                        eprintln!("Error reading from incoming: {}", e);
+                        log::error!("Error reading from incoming: {}", e);
                         break;
                     }
                 };
 
                 if n == 0 {
-                    println!("Incoming has zero bytes. Closing connection"); // TODO: remove
+                    log::debug!("Incoming has zero bytes. Closing connection"); // TODO: remove
                     break;
                 } else {
-                    println!("Incoming has {n} bytes"); // TODO: remove
+                    log::debug!("Incoming has {n} bytes"); // TODO: remove
                 }
 
                 // Write the data from incoming to outgoing
                 match outgoing.write_all(&buf1[0..n]).await {
                     Ok(()) => {},
                     Err(e) => {
-                        eprintln!("Error writing to outgoing: {}", e);
+                        log::error!("Error writing to outgoing: {}", e);
                         break;
                     }
                 }
@@ -46,22 +46,22 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                 let n = match n {
                     Ok(n) => n,
                     Err(e) => {
-                        eprintln!("Error reading from outgoing: {}", e);
+                        log::error!("Error reading from outgoing: {}", e);
                         break;
                     }
                 };
                 if n == 0 {
-                    println!("Outgoing has zero bytes. Closing connection"); // TODO: remove
+                    log::debug!("Outgoing has zero bytes. Closing connection"); // TODO: remove
                     break;
                 } else {
-                    println!("Outgoing has {n} bytes"); // TODO: remove
+                    log::debug!("Outgoing has {n} bytes"); // TODO: remove
                 }
 
                 // Write the data from outgoing to incoming
                 match incoming.write_all(&buf2[0..n]).await {
                     Ok(()) => {},
                     Err(e) => {
-                        eprintln!("Error writing to incoming: {}", e);
+                        log::error!("Error writing to incoming: {}", e);
                         break;
                     }
                 }
@@ -72,21 +72,21 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
 
 async fn handle_connection(incoming_stream: TcpStream, destinations: Arc<Vec<String>>) {
     for op in destinations.as_ref() {
-        println!("Trying destination: {op}"); // TODO: remove
+        log::info!("Trying destination: {op}");
         let outgoing_stream = match TcpStream::connect(op).await {
             Ok(stream) => stream,
             Err(e) => {
-                eprintln!("Destination failed {op}: {e}");
+                log::error!("Destination failed {op}: {e}");
                 continue;
             }
         };
-        println!("Connected to destination: {op}"); // TODO: remove
+        log::info!("Connected to destination: {op}");
 
         do_tunnel(incoming_stream, outgoing_stream).await;
         return;
     }
 
-    eprintln!("All destinations failed: {destinations:?}");
+    log::error!("All destinations failed: {destinations:?}");
 }
 
 fn parse_address<S: AsRef<str>>(addr_str: &S) -> Result<SocketAddr, Box<dyn std::error::Error>> {
@@ -142,11 +142,11 @@ async fn one_shot_proxy(listener: &TcpListener, destinations_strs: Arc<Vec<Strin
     let (stream, address) = match listener.accept().await {
         Ok(stream) => stream,
         Err(e) => {
-            eprintln!("Accept failed: {e}");
+            log::warn!("Accept failed: {e}");
             return;
         }
     };
-    println!("Received connection from {address}");
+    log::info!("Received connection from {address}");
 
     task::spawn(async {
         handle_connection(stream, destinations_strs).await;
@@ -165,7 +165,7 @@ async fn start<S: AsRef<str>>(
             .expect("Oneshot: failed in sending binding result failed");
     }
 
-    println!("Program started...");
+    log::info!("Program started...");
 
     loop {
         let destinations_strs = Arc::clone(&destinations_strs);

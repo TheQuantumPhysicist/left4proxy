@@ -56,6 +56,8 @@ struct DestinationSignals {
     end_reached_signal: tokio::sync::mpsc::UnboundedSender<()>,
 }
 
+/// This function launches a destination, and prepares it to receive `expected_data`,
+/// and it replies with is `response_prefix`, followed by `expected_data`
 async fn prepare_destination_end(
     response_prefix: Vec<u8>,
     expected_data: Vec<u8>,
@@ -81,7 +83,7 @@ async fn prepare_destination_end(
         let (mut incoming_stream, _incoming_addr) = destination_listener.accept().await.unwrap();
         println!("Accepted connection in destination {addr_clone}");
 
-        // we first write the prefix in the response
+        // we first write the prefix in the response, which is part of the algorithm of the test
         incoming_stream.write_all(&response_prefix).await.unwrap();
 
         let mut full_incoming_buffer = Vec::<u8>::new();
@@ -91,7 +93,6 @@ async fn prepare_destination_end(
         loop {
             select! {
                 n = incoming_stream.read(&mut incoming_buffer_chunk) => {
-                    // incoming has data available to be read
                     let n = match n {
                         Ok(n) => n,
                         Err(e) => {
@@ -122,8 +123,8 @@ async fn prepare_destination_end(
                     }
                 },
                 _ = signals.request_shutdown_signal.recv() => {
-                    // TODO: better than shutdown and check, we send the data we wanna check in the buffer
-                    // after everything is done, ensure that the data we received represents the full expected data
+                    // when shutting down, we expect that all the data has been delivered already,
+                    // so we ensure it's equal to expected_data
                     assert_eq!(full_incoming_buffer, expected_data);
                     println!("Buffer equality for destination {addr_clone} passed");
                     break;
