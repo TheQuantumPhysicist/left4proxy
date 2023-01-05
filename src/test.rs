@@ -248,22 +248,22 @@ async fn connection_proxy() {
     let destinations_strs = Arc::new(destinations_addrs_strs.clone());
 
     // Start the proxy application on a specified port
-    {
+    let socket_bind_addr = {
         let (start_bind_tx, start_bind_rx) = tokio::sync::oneshot::channel();
 
         task::spawn(async {
-            start("127.0.0.1:53535", destinations_strs, Some(start_bind_tx))
+            start("127.0.0.1:0", destinations_strs, Some(start_bind_tx))
                 .await
                 .unwrap();
         });
 
-        start_bind_rx.await.unwrap();
-    }
+        start_bind_rx.await.unwrap()
+    };
 
     // In every iteration, we connect to the proxy, then expect the data to arrive to the first available destination,
     // then we close the destination (drop it), reconnect, and we expect to move to the next one
     for idx in 0..destinations_count {
-        let mut source_writer = TcpStream::connect("127.0.0.1:53535").await.unwrap();
+        let mut source_writer = TcpStream::connect(socket_bind_addr).await.unwrap();
 
         let data_to_send = expected_data_for_dests[idx].clone();
 

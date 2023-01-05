@@ -156,12 +156,16 @@ async fn one_shot_proxy(listener: &TcpListener, destinations_strs: Arc<Vec<Strin
 async fn start<S: AsRef<str>>(
     source_address_str: S,
     destinations_strs: Arc<Vec<String>>,
-    bind_confirming_channel: Option<tokio::sync::oneshot::Sender<()>>,
+    bind_confirming_channel: Option<tokio::sync::oneshot::Sender<SocketAddr>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(source_address_str.as_ref()).await?;
 
+    let socket_bind_addr = listener
+        .local_addr()
+        .expect("Failed to retrieve socket address");
+
     if let Some(ch) = bind_confirming_channel {
-        ch.send(())
+        ch.send(socket_bind_addr)
             .expect("Oneshot: failed in sending binding result failed");
     }
 
