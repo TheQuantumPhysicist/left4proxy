@@ -110,7 +110,7 @@ async fn prepare_destination_end(
 
                     full_incoming_buffer.extend(&incoming_buffer_chunk[0..n]);
 
-                    assert!(full_incoming_buffer.starts_with(&expected_data));
+                    assert!(expected_data.starts_with(&full_incoming_buffer));
                     assert!(full_incoming_buffer.len() <= expected_data.len());
 
                     // Write the data from incoming to outgoing
@@ -143,22 +143,34 @@ async fn prepare_destination_end(
     addr
 }
 
+fn random_size(max_size: usize) -> usize {
+    rand::random::<usize>() % max_size
+}
+
+fn random_bytes(max_size: usize) -> Vec<u8> {
+    (0..random_size(max_size))
+        .map(|_| rand::random::<u8>())
+        .collect()
+}
+
 #[tokio::test]
 async fn connection_proxy() {
     let destinations_count = 4;
 
+    let max_size = 1 << 20;
+
     let response_prefixes = [
-        b"abcd".to_vec(),
-        b"ggg".to_vec(),
-        b"shas".to_vec(),
-        b"bassX".to_vec(),
+        random_bytes(max_size),
+        random_bytes(max_size),
+        random_bytes(max_size),
+        random_bytes(max_size),
     ];
 
     let expected_data_for_dests = [
-        b"sdsdsddwwd".to_vec(),
-        b"sgfsgsgs".to_vec(),
-        b"fwfwfwfw".to_vec(),
-        b"sdfsfswegegegeg".to_vec(),
+        random_bytes(max_size),
+        random_bytes(max_size),
+        random_bytes(max_size),
+        random_bytes(max_size),
     ];
 
     //////////////////////////////////////////////////
