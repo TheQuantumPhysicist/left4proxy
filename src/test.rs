@@ -51,10 +51,14 @@ fn check_invalid_ipv6_addresses() {
     let _ = parse_address(&"127.0.0.1").unwrap_err();
 }
 
+struct DestinationSignals {
+    request_shutdown_signal: tokio::sync::oneshot::Receiver<()>,
+}
+
 async fn prepare_destination_end(
     response_prefix: Vec<u8>,
     expected_data: Vec<u8>,
-    mut shutdown_signal: tokio::sync::oneshot::Receiver<()>,
+    mut signals: DestinationSignals,
 ) -> SocketAddr {
     let destination_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = destination_listener
@@ -71,17 +75,21 @@ async fn prepare_destination_end(
         let addr_clone = addr_clone;
         let destination_listener = destination_listener;
         let response_prefix = response_prefix;
+        let expected_data = expected_data;
 
         let (mut incoming_stream, _incoming_addr) = destination_listener.accept().await.unwrap();
         println!("Accepted connection in destination {addr_clone}");
 
+        // we first write the prefix in the response
         incoming_stream.write_all(&response_prefix).await.unwrap();
 
-        let mut readwrite_buffer = [0; 16384];
+        let mut full_incoming_buffer = Vec::<u8>::new();
+
+        let mut incoming_buffer_chunk = [0; 16384];
 
         loop {
             select! {
-                n = incoming_stream.read(&mut readwrite_buffer) => {
+                n = incoming_stream.read(&mut incoming_buffer_chunk) => {
                     // incoming has data available to be read
                     let n = match n {
                         Ok(n) => n,
@@ -92,14 +100,19 @@ async fn prepare_destination_end(
                     };
 
                     if n == 0 {
-                        println!("Incoming has zero bytes. Closing connection"); // TODO: remove
+                        println!("Destination {addr_clone}: Incoming has zero bytes. Closing connection");
                         break;
                     } else {
-                        println!("Incoming has {n} bytes"); // TODO: remove
+                        println!("Destination {addr_clone}: Incoming has {n} bytes");
                     }
 
+                    full_incoming_buffer.extend(&incoming_buffer_chunk[0..n]);
+
+                    assert!(full_incoming_buffer.starts_with(&expected_data));
+                    assert!(full_incoming_buffer.len() <= expected_data.len());
+
                     // Write the data from incoming to outgoing
-                    match incoming_stream.write_all(&readwrite_buffer[0..n]).await {
+                    match incoming_stream.write_all(&incoming_buffer_chunk[0..n]).await {
                         Ok(()) => {},
                         Err(e) => {
                             eprintln!("Error writing to outgoing: {}", e);
@@ -107,7 +120,11 @@ async fn prepare_destination_end(
                         }
                     }
                 },
-                _ = &mut shutdown_signal => {
+                _ = &mut signals.request_shutdown_signal => {
+                    // TODO: better than shutdown and check, we send the data we wanna check in the buffer
+                    // after everything is done, ensure that the data we received represents the full expected data
+                    assert_eq!(full_incoming_buffer, expected_data);
+                    println!("Buffer equality for destination {addr_clone} passed");
                     break;
                 }
 
@@ -120,16 +137,6 @@ async fn prepare_destination_end(
 
 #[tokio::test]
 async fn connection_proxy() {
-    // let source_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    // let source_listener_addr = source_listener
-    //     .local_addr()
-    //     .unwrap()
-    //     .to_socket_addrs()
-    //     .await
-    //     .unwrap()
-    //     .into_iter()
-    //     .collect::<Vec<SocketAddr>>()[0];
-
     let destinations_count = 4;
 
     let response_prefixes = [
@@ -146,38 +153,42 @@ async fn connection_proxy() {
         b"sdfsfswegegegeg".to_vec(),
     ];
 
-    let (_destinations_shutdown_signal_senders, destinations_shutdown_signal_receivers): (
-        Vec<_>,
-        Vec<_>,
-    ) = (0..destinations_count)
+    let (
+        destinations_request_shutdown_signal_senders,
+        destinations_request_shutdown_signal_receivers,
+    ): (Vec<_>, Vec<_>) = (0..destinations_count)
         .into_iter()
         .map(|_idx| tokio::sync::oneshot::channel())
         .unzip();
 
-    let prefixes_expecteddata_shutdownsignals: Vec<(
-        Vec<u8>,
-        Vec<u8>,
-        tokio::sync::oneshot::Receiver<()>,
-    )> = response_prefixes
-        .clone()
+    let destinations_signals = destinations_request_shutdown_signal_receivers
         .into_iter()
-        .zip(
-            expected_data_for_dests
-                .clone()
-                .into_iter()
-                .zip(destinations_shutdown_signal_receivers.into_iter()),
-        )
-        .map(|(a, (b, c))| (a, b, c))
-        .collect();
+        .map(|d| DestinationSignals {
+            request_shutdown_signal: d,
+        })
+        .collect::<Vec<_>>();
 
-    let destinations_initializers = prefixes_expecteddata_shutdownsignals
+    let prefixes_expecteddata_signals: Vec<(Vec<u8>, Vec<u8>, DestinationSignals)> =
+        response_prefixes
+            .clone()
+            .into_iter()
+            .zip(
+                expected_data_for_dests
+                    .clone()
+                    .into_iter()
+                    .zip(destinations_signals.into_iter()),
+            )
+            .map(|(a, (b, c))| (a, b, c))
+            .collect();
+
+    let destinations_initializers = prefixes_expecteddata_signals
         .into_iter()
         .map(
-            |(response_prefixes, expected_data_for_dest, destinations_shutdown_signal_receiver)| {
+            |(response_prefixes, expected_data_for_dest, destinations_signals)| {
                 prepare_destination_end(
                     response_prefixes,
                     expected_data_for_dest,
-                    destinations_shutdown_signal_receiver,
+                    destinations_signals,
                 )
             },
         )
@@ -228,4 +239,10 @@ async fn connection_proxy() {
     source_writer.read_exact(&mut read_result).await.unwrap();
 
     assert_eq!(read_result, expected_data);
+
+    destinations_request_shutdown_signal_senders
+        .into_iter()
+        .for_each(|s| {
+            s.send(()).unwrap();
+        });
 }
