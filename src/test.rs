@@ -235,7 +235,6 @@ async fn connection_proxy() {
     let (start_bind_tx, start_bind_rx) = tokio::sync::oneshot::channel();
 
     task::spawn(async {
-        // one_shot_proxy(&source_listener, Arc::new(destinations_addrs_strs)).await;
         start("127.0.0.1:53535", destinations_strs, Some(start_bind_tx))
             .await
             .unwrap();
