@@ -117,7 +117,7 @@ fn parse_args() -> Result<(String, Vec<String>), Box<dyn std::error::Error>> {
 
     if args.len() < 3 {
         eprintln!("Help:");
-        eprintln!("http_forker <source:port> <destination1:port> <destination2:port> ...");
+        eprintln!("left4proxy <source:port> <destination1:port> <destination2:port> ...");
         eprintln!("    with at least one destination");
         eprintln!("destinations are attempted in order");
         eprintln!();
