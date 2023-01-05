@@ -158,6 +158,8 @@ async fn start<S: AsRef<str>>(
     destinations_strs: Arc<Vec<String>>,
     bind_confirming_channel: Option<tokio::sync::oneshot::Sender<SocketAddr>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     let listener = TcpListener::bind(source_address_str.as_ref()).await?;
 
     let socket_bind_addr = listener
