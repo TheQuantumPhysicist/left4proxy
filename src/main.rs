@@ -26,10 +26,10 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                 };
 
                 if n == 0 {
-                    log::debug!("Incoming has zero bytes. Closing connection"); // TODO: remove
+                    log::debug!("Incoming has zero bytes. Closing connection");
                     break;
                 } else {
-                    log::debug!("Incoming has {n} bytes"); // TODO: remove
+                    log::debug!("Incoming has {n} bytes");
                 }
 
                 // Write the data from incoming to outgoing
@@ -51,10 +51,10 @@ async fn do_tunnel(mut incoming: TcpStream, mut outgoing: TcpStream) {
                     }
                 };
                 if n == 0 {
-                    log::debug!("Outgoing has zero bytes. Closing connection"); // TODO: remove
+                    log::debug!("Outgoing has zero bytes. Closing connection");
                     break;
                 } else {
-                    log::debug!("Outgoing has {n} bytes"); // TODO: remove
+                    log::debug!("Outgoing has {n} bytes");
                 }
 
                 // Write the data from outgoing to incoming
