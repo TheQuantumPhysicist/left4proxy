@@ -145,7 +145,7 @@ async fn prepare_destination_end(
 }
 
 fn random_size(max_size: usize) -> usize {
-    rand::random::<usize>() % max_size
+    rand::random_range(0..max_size)
 }
 
 fn random_bytes(max_size: usize) -> Vec<u8> {
@@ -156,7 +156,7 @@ fn random_bytes(max_size: usize) -> Vec<u8> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn connection_proxy() {
-    let destinations_count = rand::random::<usize>() % 100;
+    let destinations_count = rand::random_range(0..100);
     println!("Test destinations count: {}", destinations_count);
 
     let max_size = 1 << 20;
